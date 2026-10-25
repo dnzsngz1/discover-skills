@@ -301,11 +301,13 @@ User can override by:
 
 ## Verification
 
-After activation, verify:
-- [ ] At least one PRIMARY skill activated for non-trivial tasks
+Before starting the task, verify:
+- [ ] Every PRIMARY skill from the discovery report has a **successful `skill` tool call**
+- [ ] Every SECONDARY skill was invoked or explicitly justified as excluded
+- [ ] No `✓ invoked` label appears without a matching tool call
 - [ ] Skills match detected tech stack (no React skills for Vue projects)
-- [ ] No conflicting skills activated (e.g., both `taste-skill` and a generic "use Tailwind defaults" approach)
-- [ ] User informed of activations before work begins
+- [ ] Activation table printed with `✓ invoked` / `⏸ on-demand` / `✗ failed` statuses
+- [ ] If a domain had no PRIMARY skill: GitHub search was offered and the user's answer recorded
 
 ## Edge Cases
 
