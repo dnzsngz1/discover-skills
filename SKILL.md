@@ -1,30 +1,48 @@
 ---
-name: auto-skill-discovery
+name: discover-skills
 description: >-
-  Automatically discovers and invokes relevant installed skills based on project context and task requirements.
-  Scans the project for tech stack, domain, and purpose, then activates matching skills from the available
-  skill catalog. Use at the start of any session or when facing a new task domain — it eliminates manual
-  skill selection by mapping project signals (package.json, framework configs, file patterns, README content)
-  to the right skill combinations. For example: detects a Next.js + Tailwind project with design tasks →
-  activates taste-skill (design-taste-frontend), frontend-design, frontend-ui-engineering; detects a
-  Python FastAPI project with security concerns → activates security-and-hardening, api-and-interface-design,
-  observability-and-instrumentation. The dynamic scanner reads every installed skill's SKILL.md, so newly
-  installed skills are recommended automatically with no configuration. When no installed skill fits the
-  task and the user approves, it can search GitHub for a matching skill/repo, security-scan it, and install
-  it into the project. Can also export the full discovery dossier as a git-ready `discover/` folder
-  (report + all dependency manifests/configs) with `--export`. Always run this first when starting work in
-  a repository or when the task domain shifts.
+  Automatically discovers and ALWAYS INVOKES the relevant installed skills for the current project and task
+  (via real `skill` tool calls, not just a recommendation list). Scans the project for tech stack, domain and
+  purpose, maps project signals (package.json, framework configs, file patterns, README content) to the right
+  skills, then loads every matching skill before work starts. Use whenever the user invokes this skill by name
+  ("discover-skills"), starts work in a repository, or shifts to a new task domain — e.g. a Next.js + Tailwind
+  design task → invokes taste-skill (design-taste-frontend), frontend-design, frontend-ui-engineering; a
+  Python FastAPI security task → invokes security-and-hardening, api-and-interface-design. The dynamic scanner
+  reads every installed skill's SKILL.md, so newly installed skills are used automatically. When NO installed
+  skill fits the topic, it asks the user for approval, searches GitHub for a matching skill/repo, security-scans
+  it and installs it — then invokes it immediately. Also exports a git-ready `discover/` dossier
+  (report + dependency manifests/configs) with `--export`.
 ---
-# Auto Skill Discovery
+# Discover Skills
+
+## The one rule that matters
+
+**Invoking this skill means invoking other skills.** Printing a recommendation table is
+not activation. For every skill this workflow selects, you (the agent) MUST call the
+`skill` tool with that skill's id in the same turn, and only then continue with the task:
+
+```
+tools.skill({ id: "taste-skill" })
+tools.skill({ id: "frontend-design" })
+...
+```
+
+- Never write "activated X" unless the `skill` call actually happened.
+- If the `skill` tool is unavailable in this harness, read that skill's `SKILL.md`
+  directly from the skills directory and follow it — and state that you did.
+- If a skill fails to load (broken/intrusive SKILL.md), report it and carry on with the
+  others. Do not silently drop it.
 
 ## Purpose
 
-This meta-skill automatically analyzes the project context (tech stack, domain, file patterns, documentation)
-and activates the most relevant installed skills for the current task. It removes the burden of manually
-selecting and invoking skills by inferring the right skill combination from project signals.
+This meta-skill analyzes the project context (tech stack, domain, file patterns,
+documentation) and **loads** the most relevant installed skills for the current task.
+It removes manual skill selection by inferring the right combination from project
+signals — and guarantees the selected skills are actually invoked, not merely listed.
 
 ## When to Use
 
+- **Whenever the user invokes `discover-skills`** — mandatory, always run the full flow
 - **At session start** — run this first to load the right context for the repository
 - **When task domain changes** — e.g., switching from API work to UI work, or adding tests
 - **When uncertain which skills apply** — let the project tell you what it needs
@@ -168,43 +186,51 @@ Task involves: "research", "learn", "investigate", "find out", "how to"
 → ACTIVATE: research, autoresearch, academy-guide (for Claude product questions)
 ```
 
-### 4. Activation Protocol
+### 4. Activation Protocol (mandatory)
 
-For each matched skill category:
+Activation is a sequence of real `skill` tool calls — not prose.
 
-1. **Read the skill's SKILL.md** to confirm applicability
-2. **Invoke the skill** by following its instructions
-3. **Chain skills** when multiple apply (e.g., spec → plan → implement → test → review)
-4. **Report activated skills** to the user with reasoning
+1. **Invoke every PRIMARY skill** from the recommendation output, in order, via
+   `tools.skill({ id })`. No PRIMARY skill may be skipped.
+2. **Invoke every SECONDARY skill** unless it clearly contradicts the task (e.g. a
+   testing skill on a research-only question). When in doubt, invoke it.
+3. **Invoke SUPPORTING skills only when the task actually enters their territory**
+   (e.g. `ui-ux-pro-max` when choosing palettes/fonts; `performance-optimization`
+   when the user mentions speed). Keep them listed as "on demand".
+4. **Emit an activation report immediately after the calls** (table below) with
+   `✓ invoked` / `⏸ on-demand` / `✗ failed: reason`.
+5. **Only then** start the actual work, letting every loaded skill's instructions
+   shape it. If two loaded skills conflict, resolve in favor of the more specific one
+   and say so.
+
+If the task's domain produced **no PRIMARY skill**, go to *Gap Filling* (below): ask the
+user once whether to search GitHub. On approval, install, re-run discovery, and invoke
+the newly installed skill before starting work.
 
 ## Execution Flow
 
 ```
-USER TASK ARRIVES
+USER INVOKES discover-skills
        │
        ▼
-SCAN PROJECT (parallel checks)
+RUN scripts/discover.mjs . --task "<the user's task>"   (JSON report)
        │
-       ▼
-BUILD PROFILE (tech stack, domain, patterns)
+       ├─ PRIMARY/SECONDARY found ──► CALL tools.skill({id}) for EACH (mandatory)
+       │                                  │
+       │                                  ▼
+       │                          print activation table (✓/⏸/✗)
+       │                                  │
+       │                                  ▼
+       │                          do the task under those skills' instructions
        │
-       ▼
-MATCH TO SKILL CATEGORIES (decision matrix)
-       │
-       ▼
-FOR EACH MATCHED CATEGORY:
-  1. Read skill SKILL.md
-  2. Confirm fit for current task
-  3. Activate skill (follow its workflow)
-  4. Note activation in context
-       │
-       ▼
-REPORT TO USER:
-"Activated skills for this task:
-- taste-skill (design-taste-frontend): Next.js + Tailwind detected, design task
-- frontend-ui-engineering: Building production UI components
-- frontend-design: Distinctive visual direction needed
-Proceeding with taste-skill run first..."
+       └─ no PRIMARY fit ──► ASK user: "search GitHub for a matching skill?"
+                                  │
+                             approved ──► github-skill.mjs search → pick → dry-run scan
+                                  │            → install → re-run discovery
+                                  │            → CALL skill({id}) on the new skill
+                                  │
+                             declined ──► proceed with best available capability,
+                                          say which gap remains
 ```
 
 ## Skill Invocation Patterns
@@ -223,40 +249,48 @@ spec-driven-development
     → documentation-and-adrs
     → shipping-and-launch
 ```
+Invoke skills as their phase begins, not all at once; the discovery report tells you
+which phases apply.
 
 ### Parallel Activation (for cross-cutting concerns)
 ```
 Frontend task + API task + Security review
-    → taste-skill + frontend-ui-engineering (parallel)
-    → api-and-interface-design (parallel)
-    → security-and-hardening (parallel)
-    → observability-and-instrumentation (parallel)
+    → skill(taste-skill), skill(frontend-ui-engineering), skill(frontend-design)
+    → skill(api-and-interface-design)
+    → skill(security-and-hardening)
+    → skill(observability-and-instrumentation)
 ```
+All in the same turn; order within the turn does not matter.
 
 ### Single Skill (for focused tasks)
 ```
-"Fix this bug" → debugging-and-error-recovery
-"Write tests" → test-driven-development
-"Review PR" → code-review-and-quality
-"Design this page" → taste-skill + frontend-design
+"Fix this bug" → skill(debugging-and-error-recovery)
+"Write tests" → skill(test-driven-development)
+"Review PR" → skill(code-review-and-quality)
+"Design this page" → skill(taste-skill) + skill(frontend-design)
 ```
 
 ## Reporting Format
 
-Always report activated skills with this format:
+After the `skill` calls, print exactly this shape:
 
 ```
-## Auto-Activated Skills
+## Activated skills
 
-| Skill | Reason | Priority |
-|-------|--------|----------|
-| taste-skill (design-taste-frontend) | Next.js 14 + Tailwind v4 + components/ detected; task involves landing page design | PRIMARY |
-| frontend-ui-engineering | Building production-quality React components with accessibility | PRIMARY |
-| frontend-design | Need distinctive visual direction, not AI defaults | SUPPORTING |
-| test-driven-development | Vitest + Playwright configured; new components need tests | SECONDARY |
+| Skill | Priority | Status | Why |
+|-------|----------|--------|-----|
+| taste-skill (design-taste-frontend) | PRIMARY | ✓ invoked | Next.js + Tailwind + landing-page task |
+| frontend-design | PRIMARY | ✓ invoked | distinctive visual direction |
+| frontend-ui-engineering | SECONDARY | ✓ invoked | production UI components, a11y |
+| ui-ux-pro-max | SUPPORTING | ⏸ on-demand | use when picking palette/fonts |
+| test-driven-development | SECONDARY | ✗ failed: SKILL.md unreadable | — |
 
-Starting with: taste-skill run (step 1: read brief and project)
+Gap: no installed skill covers <topic> → user asked about GitHub install (pending/declined/installed: <repo>).
+Starting with: taste-skill (step 1: read brief and project).
 ```
+
+`✓ invoked` is only allowed if the corresponding `skill` tool call returned
+successfully in this session.
 
 ## Override Behavior
 
@@ -336,7 +370,7 @@ offers to search GitHub — **never silently**.
    (or the English equivalent). Wait for explicit approval.
 3. On approval, search:
    ```bash
-   node ~/.config/opencode/skills/auto-skill-discovery/scripts/github-skill.mjs \
+   node ~/.config/opencode/skills/discover-skills/scripts/github-skill.mjs \
      search --query "<task keywords> <stack>" --limit 8
    ```
    Candidates come back scored (stars, recency, license, ships a SKILL.md).
@@ -344,18 +378,26 @@ offers to search GitHub — **never silently**.
    or skip if none look trustworthy.
 5. Pre-install inspection (optional but recommended for unfamiliar repos):
    ```bash
-   node ~/.config/opencode/skills/auto-skill-discovery/scripts/github-skill.mjs \
+   node ~/.config/opencode/skills/discover-skills/scripts/github-skill.mjs \
      inspect --repo <owner/repo>
    ```
 6. Dry-run first, then install after the user confirms the report:
    ```bash
-   node ~/.config/opencode/skills/auto-skill-discovery/scripts/github-skill.mjs \
+   node ~/.config/opencode/skills/discover-skills/scripts/github-skill.mjs \
      install --repo <owner/repo> [--name <skill-dir>] --dry-run   # shows plan + scan
-   node ~/.config/opencode/skills/auto-skill-discovery/scripts/github-skill.mjs \
+   node ~/.config/opencode/skills/discover-skills/scripts/github-skill.mjs \
      install --repo <owner/repo> [--name <skill-dir>]             # actual install
    ```
 7. Re-run discovery — the dynamic scanner picks the new skill up automatically
    and recommends it if it matches.
+8. **Invoke the newly installed skill immediately** — `tools.skill({ id: "<new-skill>" })`
+   — before starting the work. Installing without invoking defeats the purpose.
+
+### When the user declines
+
+Do not stall and do not install. Proceed with the best installed capability, name the
+gap explicitly in the activation report (`Gap: no skill covers <topic> — install declined`),
+and use the closest workflows that do exist.
 
 ### Security rules (non-negotiable)
 
@@ -390,7 +432,7 @@ Create `<projectDir>/discover/` — a self-contained folder with the report and
 all dependency manifests, initialized as its own git repo, ready to push:
 
 ```bash
-node ~/.config/opencode/skills/auto-skill-discovery/scripts/discover.mjs . --export
+node ~/.config/opencode/skills/discover-skills/scripts/discover.mjs . --export
 ```
 
 Produces:
@@ -419,11 +461,11 @@ git push -u origin main
 Run discovery manually:
 ```bash
 # From project root, with the current task text (recommended)
-node ~/.config/opencode/skills/auto-skill-discovery/scripts/discover.mjs . \
+node ~/.config/opencode/skills/discover-skills/scripts/discover.mjs . \
   --task "redesign the landing page" --pretty
 
 # Explicit project directory
-node ~/.config/opencode/skills/auto-skill-discovery/scripts/discover.mjs /path/to/project
+node ~/.config/opencode/skills/discover-skills/scripts/discover.mjs /path/to/project
 
 # Flags
 #   --task "..."   Task description; matched words become taskHints

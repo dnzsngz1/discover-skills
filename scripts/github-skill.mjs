@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * auto-skill-discovery / github-skill.mjs
+ * discover-skills / github-skill.mjs
  *
  * Gap filling: find a matching skill/repo on GitHub and install it into the
  * project's skill directory — ALWAYS gated behind explicit user approval at the
@@ -35,7 +35,7 @@ const sub = args[0] && !args[0].startsWith("--") ? args[0] : "search";
 
 const GH = "https://api.github.com";
 const RAW = "https://raw.githubusercontent.com";
-const UA = { "User-Agent": "opencode-auto-skill-discovery", Accept: "application/vnd.github+json" };
+const UA = { "User-Agent": "opencode-discover-skills", Accept: "application/vnd.github+json" };
 
 const die = (msg) => {
   console.error(msg);
